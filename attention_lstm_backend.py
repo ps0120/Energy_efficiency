@@ -9,20 +9,8 @@ import pandas as pd
 
 from array import array
 
-from tensorflow.keras.callbacks import EarlyStopping
-from tensorflow.keras.layers import (
-    Bidirectional,
-    Dense,
-    Dropout,
-    Flatten,
-    Input,
-    LSTM,
-    multiply,
-)
-from tensorflow.keras.models import Model
 from sklearn.metrics import mean_absolute_error, mean_squared_error, r2_score
 from sklearn.preprocessing import MinMaxScaler
-from tensorflow.keras.optimizers import Adam
 
 
 # Keep file/path names identical to try3 - attention-lstm.py
@@ -222,6 +210,27 @@ def train_attention_lstm(
     user_df: pd.DataFrame,
     history_path: str = HISTORY_DEFAULT_PATH,
 ) -> TrainResult:
+    try:
+        from tensorflow.keras.callbacks import EarlyStopping  # type: ignore[import-not-found]
+        from tensorflow.keras.layers import (  # type: ignore[import-not-found]
+            Bidirectional,
+            Dense,
+            Dropout,
+            Flatten,
+            Input,
+            LSTM,
+            multiply,
+        )
+        from tensorflow.keras.models import Model  # type: ignore[import-not-found]
+        from tensorflow.keras.optimizers import Adam  # type: ignore[import-not-found]
+    except Exception as e:
+        raise RuntimeError(
+            "TensorFlow is not available in this environment. "
+            "Streamlit Cloud is currently using Python 3.14.x, where TensorFlow wheels are not published. "
+            "To enable training, run locally with Python 3.12/3.13, or deploy on a platform where you can choose Python <= 3.13. "
+            f"Original import error: {e}"
+        )
+
     # Match try3 train(): it always reloads history from Excel
     if user_df is None:
         raise ValueError("user_df is required")

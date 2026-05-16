@@ -5,5 +5,6 @@ scikit-learn>=1.4
 openpyxl>=3.1
 
 # TensorFlow wheels are not available for every Python version.
-# Streamlit Cloud currently fails on Python 3.14+ for TF; `runtime.txt` pins Python to 3.12.
-tensorflow==2.16.2
+# Streamlit Cloud is currently using Python 3.14.x for this app, where TensorFlow wheels are unavailable.
+# This marker prevents deploy-time install failure; training requires Python <= 3.13.
+tensorflow==2.16.2; python_version < '3.14'

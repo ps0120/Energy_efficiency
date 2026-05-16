@@ -1,0 +1,101 @@
+
+[     UTC     ] Logs for energyefficiency-w4mmvwuhnpa6htv8xenmvd.streamlit.app/
+────────────────────────────────────────────────────────────────────────────────────────
+[16:38:23] 🖥 Provisioning machine...
+[16:38:23] 🎛 Preparing system...
+[16:38:23] ⛓ Spinning up manager process...
+[16:38:21] 🚀 Starting up repository: 'energy_efficiency', branch: 'main', main module: 'app.py'
+[16:38:21] 🐙 Cloning repository...
+[16:38:22] 🐙 Cloning into '/mount/src/energy_efficiency'...
+
+[16:38:22] 🐙 Cloned repository!
+[16:38:22] 🐙 Pulling code changes from Github...
+[16:38:23] 📦 Processing dependencies...
+
+──────────────────────────────────────── uv ───────────────────────────────────────────
+
+Using uv pip install.
+Using Python 3.14.4 environment at /home/adminuser/venv
+  × No solution found when resolving dependencies:
+  ╰─▶ Because tensorflow==2.16.2 has no wheels with a matching Python ABI
+      tag and you require tensorflow==2.16.2, we can conclude that your
+      requirements are unsatisfiable.
+Checking if Streamlit is installed
+Installing rich for an improved exception logging
+Using uv pip install.
+Using Python 3.14.4 environment at /home/adminuser/venv
+Resolved 4 packages in 134ms
+Prepared 4 packages in 135ms
+Installed 4 packages in 26ms
+ + markdown-it-py==4.2.0
+ + mdurl==0.1.2
+ + pygments==2.20.0
+ + rich==15.0.0
+
+────────────────────────────────────────────────────────────────────────────────────────
+
+
+──────────────────────────────────────── pip ───────────────────────────────────────────
+
+Using standard pip install.
+Collecting streamlit==1.37.1 (from -r /mount/src/energy_efficiency/requirements.txt (line 1))
+  Downloading streamlit-1.37.1-py2.py3-none-any.whl.metadata (8.5 kB)
+Collecting pandas>=2.2 (from -r /mount/src/energy_efficiency/requirements.txt (line 2))
+  Downloading pandas-3.0.3-cp314-cp314-manylinux_2_24_x86_64.manylinux_2_28_x86_64.whl.metadata (79 kB)
+     ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ 79.5/79.5 kB 9.4 MB/s eta 0:00:00[2026-05-16 16:38:25.825830] 
+Collecting numpy>=1.26 (from -r /mount/src/energy_efficiency/requirements.txt (line 3))
+  Downloading numpy-2.4.5-cp314-cp314-manylinux_2_27_x86_64.manylinux_2_28_x86_64.whl.metadata (6.6 kB)
+Collecting scikit-learn>=1.4 (from -r /mount/src/energy_efficiency/requirements.txt (line 4))
+  Downloading scikit_learn-1.8.0-cp314-cp314-manylinux_2_27_x86_64.manylinux_2_28_x86_64.whl.metadata (11 kB)
+Collecting openpyxl>=3.1 (from -r /mount/src/energy_efficiency/requirements.txt (line 5))
+  Downloading openpyxl-3.1.5-py2.py3-none-any.whl.metadata (2.5 kB)
+ERROR: Ignored the following versions that require a different python version: 0.55.2 Requires-Python <3.5; 1.21.2 Requires-Python >=3.7,<3.11; 1.21.3 Requires-Python >=3.7,<3.11; 1.21.4 Requires-Python >=3.7,<3.11; 1.21.5 Requires-Python >=3.7,<3.11; 1.21.6 Requires-Python >=3.7,<3.11; 1.26.0 Requires-Python <3.13,>=3.9; 1.26.1 Requires-Python <3.13,>=3.9
+ERROR: Could not find a version that satisfies the requirement tensorflow==2.16.2 (from versions: none)
+ERROR: No matching distribution found for tensorflow==2.16.2
+
+[notice] A new release of pip is available: 24.0 -> 26.1.1
+[notice] To update, run: pip install --upgrade pip
+Checking if Streamlit is installed
+Installing rich for an improved exception logging
+Using standard pip install.
+Collecting rich>=10.14.0
+  Downloading rich-15.0.0-py3-none-any.whl.metadata (18 kB)
+Collecting markdown-it-py>=2.2.0 (from rich>=10.14.0)
+  Downloading markdown_it_py-4.2.0-py3-none-any.whl.metadata (7.4 kB)
+Collecting pygments<3.0.0,>=2.13.0 (from rich>=10.14.0)
+  Downloading pygments-2.20.0-py3-none-any.whl.metadata (2.5 kB)
+Collecting mdurl~=0.1 (from markdown-it-py>=2.2.0->rich>=10.14.0)
+  Downloading mdurl-0.1.2-py3-none-any.whl.metadata (1.6 kB)
+Downloading rich-15.0.0-py3-none-any.whl (310 kB)
+   ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ 310.7/310.7 kB 13.3 MB/s eta 0:00:00[2026-05-16 16:38:27.681202] 
+Downloading markdown_it_py-4.2.0-py3-none-any.whl (91 kB)
+   ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ 91.7/91.7 kB 439.9 MB/s eta 0:00:00[2026-05-16 16:38:27.694212] 
+Downloading pygments-2.20.0-py3-none-any.whl (1.2 MB)
+   ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ 1.2/1.2 MB 93.4 MB/s eta 0:00:00[2026-05-16 16:38:27.720681] 
+Downloading mdurl-0.1.2-py3-none-any.whl (10.0 kB)
+Installing collected packages: pygments, mdurl, markdown-it-py, rich
+  Attempting uninstall: pygments
+    Found existing installation: Pygments 2.20.0
+    Uninstalling Pygments-2.20.0:
+      Successfully uninstalled Pygments-2.20.0
+  Attempting uninstall: mdurl
+    Found existing installation: mdurl 0.1.2
+    Uninstalling mdurl-0.1.2:
+      Successfully uninstalled mdurl-0.1.2
+  Attempting uninstall: markdown-it-py
+    Found existing installation: markdown-it-py 4.2.0
+    Uninstalling markdown-it-py-4.2.0:
+      Successfully uninstalled markdown-it-py-4.2.0
+  Attempting uninstall: rich
+    Found existing installation: rich 15.0.0
+    Uninstalling rich-15.0.0:
+      Successfully uninstalled rich-15.0.0
+Successfully installed markdown-it-py-4.2.0 mdurl-0.1.2 pygments-2.20.0 rich-15.0.0
+
+[notice] A new release of pip is available: 24.0 -> 26.1.1
+[notice] To update, run: pip install --upgrade pip
+
+────────────────────────────────────────────────────────────────────────────────────────
+
+[16:38:30] ❗️ installer returned a non-zero exit code
+[16:38:30] ❗️ Error during processing dependencies! Please fix the error and push an update, or try restarting the app.
