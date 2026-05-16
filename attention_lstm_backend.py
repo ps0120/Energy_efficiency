@@ -9,9 +9,17 @@ import pandas as pd
 
 from array import array
 
-from keras.callbacks import EarlyStopping
-from keras.layers import Bidirectional, Dense, Dropout, Flatten, Input, LSTM, multiply
-from keras.models import Model
+from tensorflow.keras.callbacks import EarlyStopping
+from tensorflow.keras.layers import (
+    Bidirectional,
+    Dense,
+    Dropout,
+    Flatten,
+    Input,
+    LSTM,
+    multiply,
+)
+from tensorflow.keras.models import Model
 from sklearn.metrics import mean_absolute_error, mean_squared_error, r2_score
 from sklearn.preprocessing import MinMaxScaler
 from tensorflow.keras.optimizers import Adam
