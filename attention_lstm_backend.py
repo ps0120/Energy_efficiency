@@ -243,71 +243,41 @@ def train_attention_lstm(
     df["TimeStamp"] = pd.to_datetime(df["TimeStamp"], dayfirst=True)
     df["TimeStamp"] = df["TimeStamp"].dt.strftime("%Y-%m-%d")
 
-    feature_cols = [
-        "Usage Peak (kwh)",
-        "Average pressure (Hg)",
-        "Average temperature",
-        "Average humidity (%)",
-        "Average wind speed (m/s)",
-        "Rainfall duration (min)",
-        "Rainfall amount (mm)",
-        "Type of day",
-        "Type of Lockdown",
-    ]
+    dataset = pd.concat([history_train, df], ignore_index=True)
 
-    history_values = history_train[feature_cols].values
-    user_values = df[feature_cols].values if len(df) > 0 else None
+    values = dataset[
+        [
+            "Usage Peak (kwh)",
+            "Average pressure (Hg)",
+            "Average temperature",
+            "Average humidity (%)",
+            "Average wind speed (m/s)",
+            "Rainfall duration (min)",
+            "Rainfall amount (mm)",
+            "Type of day",
+            "Type of Lockdown",
+        ]
+    ].values
 
     scaler = MinMaxScaler(feature_range=(0, 1))
-    scaler.fit(history_values)
-
-    scaled_history = scaler.transform(history_values)
+    scaled = scaler.fit_transform(values)
 
     n_days = 7
     n_features = 9
+    reframed = series_to_supervised(scaled, n_days, 1)
+    values = reframed.values
 
-    # ==================== Evaluate on history only ====================
-    # Random 20% of historical samples as test; user-entered data is excluded from metrics.
-    reframed_history = series_to_supervised(scaled_history, n_days, 1)
-    values_history = reframed_history.values
-
-    if len(values_history) < 5:
-        raise ValueError("Not enough historical data to train/evaluate")
-
-    rng = np.random.RandomState(42)
-    all_idx = np.arange(len(values_history))
-    rng.shuffle(all_idx)
-    test_size = max(1, int(round(len(values_history) * 0.2)))
-    test_idx = np.sort(all_idx[:test_size])
-    train_pool_idx = np.sort(all_idx[test_size:])
-
-    # Hold out a small validation set from the training pool (avoid using test for early stopping)
-    val_size = max(1, int(round(len(train_pool_idx) * 0.1))) if len(train_pool_idx) > 2 else 0
-    if val_size > 0:
-        val_idx = np.sort(train_pool_idx[:val_size])
-        train_idx = np.sort(train_pool_idx[val_size:])
-    else:
-        val_idx = np.array([], dtype=int)
-        train_idx = train_pool_idx
-
-    train = values_history[train_idx]
-    test = values_history[test_idx]
-    val = values_history[val_idx] if len(val_idx) > 0 else None
+    num_test = len(df) if len(df) > 0 else 10
+    n_train_time = len(values) - num_test
+    train = values[:n_train_time, :]
+    test = values[n_train_time:, :]
 
     obs = n_days * n_features
     train_X, train_y = train[:, :obs], train[:, -n_features]
     test_X, test_y = test[:, :obs], test[:, -n_features]
 
-    if val is not None:
-        val_X, val_y = val[:, :obs], val[:, -n_features]
-    else:
-        val_X, val_y = None, None
-
     train_X = train_X.reshape((train_X.shape[0], n_days, n_features))
     test_X = test_X.reshape((test_X.shape[0], n_days, n_features))
-
-    if val_X is not None:
-        val_X = val_X.reshape((val_X.shape[0], n_days, n_features))
 
     inputs = Input(shape=(train_X.shape[1], train_X.shape[2]))
     lstm_out = Bidirectional(LSTM(100, return_sequences=True))(inputs)
@@ -333,9 +303,9 @@ def train_attention_lstm(
         train_y,
         epochs=500,
         batch_size=32,
-        validation_data=(val_X, val_y) if val_X is not None else None,
+        validation_data=(test_X, test_y),
         verbose=0,
-        shuffle=True,
+        shuffle=False,
         callbacks=[early_stop],
     )
 
@@ -371,56 +341,28 @@ def train_attention_lstm(
 
     mdae = float(median_absolute_error(inv_y, inv_yhat))
 
-    # Build evaluation dataframe for history test samples (not shown in UI by default)
-    history_timestamps = history_train["TimeStamp"].astype(str).iloc[n_days:].reset_index(drop=True)
-    test_timestamps = history_timestamps.iloc[test_idx].astype(str).values
+    arr_actual = array("f", [])
+    arr_forecast = array("f", [])
 
-    eval_df = pd.DataFrame(
+    for i in range(len(inv_y)):
+        number = len(dataset) - num_test + i
+        actual = dataset.iloc[number]["Usage Peak (kwh)"]
+        forecast = inv_yhat[i]
+        arr_actual.append(float(actual))
+        arr_forecast.append(float(forecast))
+
+    full_data = arr_forecast
+
+    start_index = len(dataset) - num_test
+    timestamps = dataset["TimeStamp"].iloc[start_index : start_index + len(inv_y)].astype(str)
+
+    predicted_df = pd.DataFrame(
         {
-            "TimeStamp": list(test_timestamps),
-            "Actual Usage Peak (kwh)": inv_y[: len(test_timestamps)],
-            "Predicted Usage Peak (kwh)": inv_yhat[: len(test_timestamps)],
+            "TimeStamp": list(timestamps.values),
+            "Actual Usage Peak (kwh)": inv_y[: len(timestamps)],
+            "Predicted Usage Peak (kwh)": inv_yhat[: len(timestamps)],
         }
     )
-
-    # ==================== Predict for user-entered rows (display only) ====================
-    if user_values is not None and len(user_values) > 0:
-        scaled_user = scaler.transform(user_values)
-        combined_scaled = np.vstack([scaled_history, scaled_user])
-        reframed_combined = series_to_supervised(combined_scaled, n_days, 1)
-        combined_values = reframed_combined.values
-
-        base_len = len(history_train)
-        user_pred: list[float] = []
-        for j in range(len(df)):
-            t = base_len + j
-            row_i = t - n_days
-            if row_i < 0 or row_i >= len(combined_values):
-                user_pred.append(float("nan"))
-                continue
-
-            x_row = combined_values[row_i, :obs].reshape((1, n_days, n_features))
-            y_row = model.predict(x_row, verbose=0)
-            inv_full = np.zeros((1, n_features))
-            inv_full[:, 0] = y_row[:, 0]
-            user_pred.append(float(scaler.inverse_transform(inv_full)[:, 0][0]))
-
-        predicted_df = pd.DataFrame(
-            {
-                "TimeStamp": df["TimeStamp"].astype(str).tolist(),
-                "Actual Usage Peak (kwh)": df["Usage Peak (kwh)"].astype(float).tolist(),
-                "Predicted Usage Peak (kwh)": user_pred,
-            }
-        )
-    else:
-        # If no user rows, fall back to showing the evaluation samples.
-        predicted_df = eval_df
-
-    # Keep full_data for compatibility with older code paths
-    arr_forecast = array("f", [])
-    for v in predicted_df["Predicted Usage Peak (kwh)"].fillna(0).tolist():
-        arr_forecast.append(float(v))
-    full_data = arr_forecast
 
     metrics = {
         "Test RMSE": rmse,
