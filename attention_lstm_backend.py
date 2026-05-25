@@ -245,22 +245,30 @@ def train_attention_lstm(
 
     dataset = pd.concat([history_train, df], ignore_index=True)
 
-    values = dataset[
-        [
-            "Usage Peak (kwh)",
-            "Average pressure (Hg)",
-            "Average temperature",
-            "Average humidity (%)",
-            "Average wind speed (m/s)",
-            "Rainfall duration (min)",
-            "Rainfall amount (mm)",
-            "Type of day",
-            "Type of Lockdown",
-        ]
-    ].values
+    feature_cols = [
+        "Usage Peak (kwh)",
+        "Average pressure (Hg)",
+        "Average temperature",
+        "Average humidity (%)",
+        "Average wind speed (m/s)",
+        "Rainfall duration (min)",
+        "Rainfall amount (mm)",
+        "Type of day",
+        "Type of Lockdown",
+    ]
+
+    history_values = history_train[feature_cols].values
+    user_values = df[feature_cols].values if len(df) > 0 else None
 
     scaler = MinMaxScaler(feature_range=(0, 1))
-    scaled = scaler.fit_transform(values)
+    scaler.fit(history_values)
+
+    scaled_history = scaler.transform(history_values)
+    if user_values is not None:
+        scaled_user = scaler.transform(user_values)
+        scaled = np.vstack([scaled_history, scaled_user])
+    else:
+        scaled = scaled_history
 
     n_days = 7
     n_features = 9

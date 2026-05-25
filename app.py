@@ -11,6 +11,21 @@ st.set_page_config(page_title="MMU Energy Prediction", layout="wide")
 st.markdown("### MMU Energy Prediction")
 
 
+
+
+_RANGES = {
+	"day": (1, 31),
+	"month": (1, 12),
+	"year": (2019, 2022),
+	"temperature": (22.0, 31.0),
+	"humidity": (58.0, 95.0),
+	"pressure": (1006.0, 1014.0),
+	"rainfall_duration": (0.0, 60.0),
+	"rainfall_amount": (-14.0, 4.0),
+	"wind_speed": (0.0, 5.3),
+}
+
+
 @st.cache_data(show_spinner=False)
 def _load_history_cached(path: str) -> pd.DataFrame:
 	return backend.load_history(path)
@@ -44,18 +59,163 @@ def _init_state() -> None:
 		st.session_state.metrics = {}
 
 
-def _to_int(name: str, value: str) -> int:
-	try:
-		return int(str(value).strip())
-	except Exception:
-		raise ValueError(f"{name} must be an integer")
+def _require_int_range(name: str, value: int, min_value: int, max_value: int) -> None:
+	if value < min_value or value > max_value:
+		raise ValueError(f"Invalid value: {name} must be between {min_value} and {max_value}")
 
 
-def _to_float(name: str, value: str) -> float:
+def _require_float_range(name: str, value: float, min_value: float, max_value: float) -> None:
+	if value < min_value or value > max_value:
+		raise ValueError(f"Invalid value: {name} must be between {min_value} and {max_value}")
+
+
+def _validate_enter_inputs() -> str | None:
 	try:
-		return float(str(value).strip())
-	except Exception:
-		raise ValueError(f"{name} must be a number")
+		day_i = int(day)
+		month_i = int(month)
+		year_i = int(year)
+		tday_i = int(t_day)
+		tlock_i = int(t_lockdown)
+
+		_require_int_range("Day", day_i, int(_RANGES["day"][0]), int(_RANGES["day"][1]))
+		_require_int_range(
+			"Month", month_i, int(_RANGES["month"][0]), int(_RANGES["month"][1])
+		)
+		_require_int_range("Year", year_i, int(_RANGES["year"][0]), int(_RANGES["year"][1]))
+
+		if tday_i not in (0, 1):
+			raise ValueError(
+				"Invalid value: Type of day must be 0 (weekday) or 1 (weekend/holiday)"
+			)
+		if tlock_i not in (0, 1, 2):
+			raise ValueError(
+				"Invalid value: Type of lockdown must be 0 (no MCO), 1 (MCO) or 2 (RMCO)"
+			)
+
+		temp_f = float(temperature)
+		hum_f = float(humidity)
+		pres_f = float(pressure)
+		rain_dur_f = float(rainfall_duration)
+		rain_amt_f = float(rainfall_amount)
+		wind_f = float(wind_speed)
+
+		_require_float_range(
+			"Temperature (°C)", temp_f, _RANGES["temperature"][0], _RANGES["temperature"][1]
+		)
+		_require_float_range(
+			"Relative Humidity (%)", hum_f, _RANGES["humidity"][0], _RANGES["humidity"][1]
+		)
+		_require_float_range(
+			"Pressure (hPa)", pres_f, _RANGES["pressure"][0], _RANGES["pressure"][1]
+		)
+		_require_float_range(
+			"Rainfall Duration (min)",
+			rain_dur_f,
+			_RANGES["rainfall_duration"][0],
+			_RANGES["rainfall_duration"][1],
+		)
+		_require_float_range(
+			"Rainfall amount (mm)",
+			rain_amt_f,
+			_RANGES["rainfall_amount"][0],
+			_RANGES["rainfall_amount"][1],
+		)
+		_require_float_range(
+			"Wind speed (m/s)",
+			wind_f,
+			_RANGES["wind_speed"][0],
+			_RANGES["wind_speed"][1],
+		)
+		return None
+	except Exception as e:
+		return str(e)
+
+
+def _field_validity() -> dict[str, bool]:
+	validity: dict[str, bool] = {}
+
+	def _check(name: str, fn) -> None:
+		try:
+			fn()
+			validity[name] = True
+		except Exception:
+			validity[name] = False
+
+	_check(
+		"Day (DD) [1-31] *",
+		lambda: _require_int_range(
+			"Day", int(day), int(_RANGES["day"][0]), int(_RANGES["day"][1])
+		),
+	)
+	_check(
+		"Month (MM) [1-12] *",
+		lambda: _require_int_range(
+			"Month", int(month), int(_RANGES["month"][0]), int(_RANGES["month"][1])
+		),
+	)
+	_check(
+		"Year (YYYY) [2019-2022] *",
+		lambda: _require_int_range(
+			"Year", int(year), int(_RANGES["year"][0]), int(_RANGES["year"][1])
+		),
+	)
+
+	_check(
+		"Temperature (°C) [22-31] *",
+		lambda: _require_float_range(
+			"Temperature (°C)",
+			float(temperature),
+			_RANGES["temperature"][0],
+			_RANGES["temperature"][1],
+		),
+	)
+	_check(
+		"Relative Humidity (%) [58-95] *",
+		lambda: _require_float_range(
+			"Relative Humidity (%)",
+			float(humidity),
+			_RANGES["humidity"][0],
+			_RANGES["humidity"][1],
+		),
+	)
+	_check(
+		"Pressure (hPa) [1006-1014] *",
+		lambda: _require_float_range(
+			"Pressure (hPa)",
+			float(pressure),
+			_RANGES["pressure"][0],
+			_RANGES["pressure"][1],
+		),
+	)
+	_check(
+		"Rainfall Duration (min) [0-60] *",
+		lambda: _require_float_range(
+			"Rainfall Duration (min)",
+			float(rainfall_duration),
+			_RANGES["rainfall_duration"][0],
+			_RANGES["rainfall_duration"][1],
+		),
+	)
+	_check(
+		"Rainfall amount (mm) [-14-4] *",
+		lambda: _require_float_range(
+			"Rainfall amount (mm)",
+			float(rainfall_amount),
+			_RANGES["rainfall_amount"][0],
+			_RANGES["rainfall_amount"][1],
+		),
+	)
+	_check(
+		"Wind speed (m/s) [0-5.3] *",
+		lambda: _require_float_range(
+			"Wind speed (m/s)",
+			float(wind_speed),
+			_RANGES["wind_speed"][0],
+			_RANGES["wind_speed"][1],
+		),
+	)
+
+	return validity
 
 
 _init_state()
@@ -66,38 +226,107 @@ with col1_0:
 	st.write("")
 	st.write("Date :")
 with col1_1:
-	day = st.text_input("Day (DD)*", value="0")
+	day = st.number_input(
+		"Day (DD) [1-31] *",
+		value=int(_RANGES["day"][0]),
+		step=1,
+	)
 with col1_2:
-	month = st.text_input("Month (MM)*", value="0")
+	month = st.number_input(
+		"Month (MM) [1-12] *",
+		value=int(_RANGES["month"][0]),
+		step=1,
+	)
 with col1_3:
-	year = st.text_input("Year (YYYY)*", value="0")
+	year = st.number_input(
+		"Year (YYYY) [2019-2022] *",
+		value=int(_RANGES["year"][0]),
+		step=1,
+	)
 
 col2_1, col2_2, col2_3, col2_4 = st.columns(4)
 with col2_1:
-	t_lockdown = st.text_input("Type of lockdown *", value="0")
+	t_lockdown = st.selectbox(
+		"Type of lockdown [0=no MCO, 1=MCO, 2=RMCO] *",
+		options=[0, 1, 2],
+		format_func=lambda v: {
+			0: "0 (no MCO)",
+			1: "1 (MCO)",
+			2: "2 (RMCO)",
+		}.get(v, str(v)),
+	)
 with col2_2:
-	temperature = st.text_input("Temperature (°C) *", value="")
+	temperature = st.number_input(
+		"Temperature (°C) [22-31] *",
+		value=float(_RANGES["temperature"][0]),
+		step=0.1,
+	)
 with col2_3:
-	humidity = st.text_input("Relative Humidity (%) *", value="")
+	humidity = st.number_input(
+		"Relative Humidity (%) [58-95] *",
+		value=float(_RANGES["humidity"][0]),
+		step=0.1,
+	)
 with col2_4:
-	pressure = st.text_input("Pressure (hPa) *", value="")
+	pressure = st.number_input(
+		"Pressure (hPa) [1006-1014] *",
+		value=float(_RANGES["pressure"][0]),
+		step=0.1,
+	)
 
 col3_1, col3_2, col3_3, col3_4 = st.columns(4)
 with col3_1:
-	rainfall_duration = st.text_input("Rainfall Duration (min) *", value="")
+	rainfall_duration = st.number_input(
+		"Rainfall Duration (min) [0-60] *",
+		value=float(_RANGES["rainfall_duration"][0]),
+		step=1.0,
+	)
 with col3_2:
-	rainfall_amount = st.text_input("Rainfall amount (mm) *", value="")
+	rainfall_amount = st.number_input(
+		"Rainfall amount (mm) [-14-4] *",
+		value=0.0,
+		step=0.1,
+	)
 with col3_3:
-	wind_speed = st.text_input("Wind speed (m/s) *", value="")
+	wind_speed = st.number_input(
+		"Wind speed (m/s) [0-5.3] *",
+		value=float(_RANGES["wind_speed"][0]),
+		step=0.1,
+	)
 with col3_4:
-	t_day = st.text_input("Type of day *", value="0")
+	t_day = st.selectbox(
+		"Type of day [0=weekday, 1=weekend/holiday] *",
+		options=[0, 1],
+		format_func=lambda v: {0: "0 (weekday)", 1: "1 (weekend/holiday)"}.get(
+			v, str(v)
+		),
+	)
 
 st.write("")
 
 # ==================== Buttons (Enter / Clear) ====================
+_enter_validation_error = _validate_enter_inputs()
+_validity = _field_validity()
+
+_css_rules: list[str] = []
+for label, is_valid in _validity.items():
+	color = "green" if is_valid else "red"
+	_css_rules.append(
+		f"input[aria-label=\"{label}\"] {{ outline: 2px solid {color} !important; outline-offset: 2px !important; }}"
+	)
+
+st.markdown(
+	"<style>" + "\n".join(_css_rules) + "</style>",
+	unsafe_allow_html=True,
+)
+
 b_col1, b_col2, b_col3, b_col4, b_col5 = st.columns(5)
 with b_col2:
-	btn_enter = st.button("Enter", use_container_width=True)
+	btn_enter = st.button(
+		"Enter",
+		use_container_width=True,
+		disabled=_enter_validation_error is not None,
+	)
 with b_col3:
 	btn_clear = st.button("Clear", use_container_width=True)
 
@@ -105,18 +334,49 @@ with b_col3:
 def _handle_enter() -> None:
 	history = _load_history_cached(st.session_state.history_path)
 
-	day_i = _to_int("Day", day)
-	month_i = _to_int("Month", month)
-	year_i = _to_int("Year", year)
-	tday_i = _to_int("Type of day", t_day)
-	tlock_i = _to_int("Type of lockdown", t_lockdown)
+	day_i = int(day)
+	month_i = int(month)
+	year_i = int(year)
+	tday_i = int(t_day)
+	tlock_i = int(t_lockdown)
 
-	temp_f = _to_float("Temperature", temperature)
-	hum_f = _to_float("Relative Humidity", humidity)
-	pres_f = _to_float("Pressure", pressure)
-	rain_dur_f = _to_float("Rainfall Duration", rainfall_duration)
-	rain_amt_f = _to_float("Rainfall amount", rainfall_amount)
-	wind_f = _to_float("Wind speed", wind_speed)
+	_require_int_range("Day", day_i, int(_RANGES["day"][0]), int(_RANGES["day"][1]))
+	_require_int_range("Month", month_i, int(_RANGES["month"][0]), int(_RANGES["month"][1]))
+	_require_int_range("Year", year_i, int(_RANGES["year"][0]), int(_RANGES["year"][1]))
+
+	if tday_i not in (0, 1):
+		raise ValueError("Invalid value: Type of day must be 0 (weekday) or 1 (weekend/holiday)")
+	if tlock_i not in (0, 1, 2):
+		raise ValueError("Invalid value: Type of lockdown must be 0 (no MCO), 1 (MCO) or 2 (RMCO)")
+
+	temp_f = float(temperature)
+	hum_f = float(humidity)
+	pres_f = float(pressure)
+	rain_dur_f = float(rainfall_duration)
+	rain_amt_f = float(rainfall_amount)
+	wind_f = float(wind_speed)
+
+	_require_float_range("Temperature (°C)", temp_f, _RANGES["temperature"][0], _RANGES["temperature"][1])
+	_require_float_range("Relative Humidity (%)", hum_f, _RANGES["humidity"][0], _RANGES["humidity"][1])
+	_require_float_range("Pressure (hPa)", pres_f, _RANGES["pressure"][0], _RANGES["pressure"][1])
+	_require_float_range(
+		"Rainfall Duration (min)",
+		rain_dur_f,
+		_RANGES["rainfall_duration"][0],
+		_RANGES["rainfall_duration"][1],
+	)
+	_require_float_range(
+		"Rainfall amount (mm)",
+		rain_amt_f,
+		_RANGES["rainfall_amount"][0],
+		_RANGES["rainfall_amount"][1],
+	)
+	_require_float_range(
+		"Wind speed (m/s)",
+		wind_f,
+		_RANGES["wind_speed"][0],
+		_RANGES["wind_speed"][1],
+	)
 
 	row = backend.build_user_row(
 		history,
@@ -157,7 +417,9 @@ if btn_clear:
 
 
 # This corresponds to the command_text Label in Tkinter
-if st.session_state.status:
+if _enter_validation_error:
+	st.write(_enter_validation_error)
+elif st.session_state.status:
 	st.write(st.session_state.status)
 else:
 	st.write(" ")

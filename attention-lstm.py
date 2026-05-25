@@ -227,7 +227,7 @@ def train():
     values = reframed.values
 
     #Split the data into train and validation datasets
-    ）
+    
     num_test = len(df) if len(df) > 0 else 10 
     n_train_time = len(values) - num_test
     train = values[:n_train_time, :]
