@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+import json
+from pathlib import Path
+
 import pandas as pd
 import streamlit as st
 
@@ -24,6 +27,40 @@ _RANGES = {
 	"rainfall_amount": (-14.0, 4.0),
 	"wind_speed": (0.0, 5.3),
 }
+
+
+_STATE_DIR = Path(".streamlit_state")
+_DATA_CSV = _STATE_DIR / "data_df.csv"
+_PRED_CSV = _STATE_DIR / "pred_df.csv"
+_METRICS_JSON = _STATE_DIR / "metrics.json"
+
+
+def _restore_state_from_disk() -> None:
+	try:
+		if _DATA_CSV.exists():
+			st.session_state.data_df = pd.read_csv(_DATA_CSV)
+		if _PRED_CSV.exists():
+			st.session_state.pred_df = pd.read_csv(_PRED_CSV)
+		if _METRICS_JSON.exists():
+			with _METRICS_JSON.open("r", encoding="utf-8") as f:
+				metrics = json.load(f)
+				if isinstance(metrics, dict):
+					st.session_state.metrics = metrics
+	except Exception:
+		# Best-effort restore; ignore corruption/IO errors.
+		return
+
+
+def _persist_state_to_disk() -> None:
+	try:
+		_STATE_DIR.mkdir(parents=True, exist_ok=True)
+		st.session_state.data_df.to_csv(_DATA_CSV, index=False)
+		st.session_state.pred_df.to_csv(_PRED_CSV, index=False)
+		with _METRICS_JSON.open("w", encoding="utf-8") as f:
+			json.dump(st.session_state.metrics, f, ensure_ascii=False)
+	except Exception:
+		# Best-effort persistence; ignore IO errors.
+		return
 
 
 @st.cache_data(show_spinner=False)
@@ -57,6 +94,9 @@ def _init_state() -> None:
 		)
 	if "metrics" not in st.session_state:
 		st.session_state.metrics = {}
+	if "_restored_from_disk" not in st.session_state:
+		st.session_state._restored_from_disk = True
+		_restore_state_from_disk()
 
 
 def _require_int_range(name: str, value: int, min_value: int, max_value: int) -> None:
@@ -226,22 +266,19 @@ with col1_0:
 	st.write("")
 	st.write("Date :")
 with col1_1:
-	day = st.number_input(
+	day = st.text_input(
 		"Day (DD) [1-31] *",
-		value=int(_RANGES["day"][0]),
-		step=1,
+		value=str(int(_RANGES["day"][0])),
 	)
 with col1_2:
-	month = st.number_input(
+	month = st.text_input(
 		"Month (MM) [1-12] *",
-		value=int(_RANGES["month"][0]),
-		step=1,
+		value=str(int(_RANGES["month"][0])),
 	)
 with col1_3:
-	year = st.number_input(
+	year = st.text_input(
 		"Year (YYYY) [2019-2022] *",
-		value=int(_RANGES["year"][0]),
-		step=1,
+		value=str(int(_RANGES["year"][0])),
 	)
 
 col2_1, col2_2, col2_3, col2_4 = st.columns(4)
@@ -256,42 +293,36 @@ with col2_1:
 		}.get(v, str(v)),
 	)
 with col2_2:
-	temperature = st.number_input(
+	temperature = st.text_input(
 		"Temperature (°C) [22-31] *",
-		value=float(_RANGES["temperature"][0]),
-		step=0.1,
+		value=str(float(_RANGES["temperature"][0])),
 	)
 with col2_3:
-	humidity = st.number_input(
+	humidity = st.text_input(
 		"Relative Humidity (%) [58-95] *",
-		value=float(_RANGES["humidity"][0]),
-		step=0.1,
+		value=str(float(_RANGES["humidity"][0])),
 	)
 with col2_4:
-	pressure = st.number_input(
+	pressure = st.text_input(
 		"Pressure (hPa) [1006-1014] *",
-		value=float(_RANGES["pressure"][0]),
-		step=0.1,
+		value=str(float(_RANGES["pressure"][0])),
 	)
 
 col3_1, col3_2, col3_3, col3_4 = st.columns(4)
 with col3_1:
-	rainfall_duration = st.number_input(
+	rainfall_duration = st.text_input(
 		"Rainfall Duration (min) [0-60] *",
-		value=float(_RANGES["rainfall_duration"][0]),
-		step=1.0,
+		value=str(float(_RANGES["rainfall_duration"][0])),
 	)
 with col3_2:
-	rainfall_amount = st.number_input(
+	rainfall_amount = st.text_input(
 		"Rainfall amount (mm) [-14-4] *",
-		value=0.0,
-		step=0.1,
+		value=str(0.0),
 	)
 with col3_3:
-	wind_speed = st.number_input(
+	wind_speed = st.text_input(
 		"Wind speed (m/s) [0-5.3] *",
-		value=float(_RANGES["wind_speed"][0]),
-		step=0.1,
+		value=str(float(_RANGES["wind_speed"][0])),
 	)
 with col3_4:
 	t_day = st.selectbox(
@@ -397,6 +428,7 @@ def _handle_enter() -> None:
 		[st.session_state.data_df, pd.DataFrame([row])], ignore_index=True
 	)
 	st.session_state.status = "Database is succesfully updated"
+	_persist_state_to_disk()
 
 
 def _handle_clear() -> None:
@@ -404,6 +436,7 @@ def _handle_clear() -> None:
 	st.session_state.pred_df = st.session_state.pred_df.iloc[0:0]
 	st.session_state.metrics = {}
 	st.session_state.status = ""
+	_persist_state_to_disk()
 
 
 if btn_enter:
@@ -445,6 +478,7 @@ def _handle_train() -> None:
 	st.session_state.pred_df = result.predicted_df
 	st.session_state.metrics = result.metrics
 	st.session_state.status = "Training complete"
+	_persist_state_to_disk()
 
 
 def _handle_update() -> None:
