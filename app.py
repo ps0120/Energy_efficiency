@@ -6,7 +6,7 @@ from pathlib import Path
 
 import pandas as pd
 import streamlit as st
-
+import altair as alt
 import attention_lstm_backend as backend
 
 
@@ -532,7 +532,6 @@ if st.session_state.pred_df is not None and len(st.session_state.pred_df) > 0:
 			chart_df["TimeStamp"] = parsed_ts
 			chart_df = chart_df.sort_values(by="TimeStamp").dropna(subset=["TimeStamp"])
 		else:
-			# If parsing fails, keep original order/index for a sensible trend.
 			chart_df["TimeStamp"] = pd.RangeIndex(start=1, stop=len(chart_df) + 1, step=1)
 
 	value_cols = [
@@ -542,10 +541,31 @@ if st.session_state.pred_df is not None and len(st.session_state.pred_df) > 0:
 	]
 	if value_cols and "TimeStamp" in chart_df.columns and len(chart_df) > 0:
 		st.caption("Trend")
-		st.line_chart(
-			chart_df.set_index("TimeStamp")[value_cols],
-			use_container_width=True,
+
+		plot_df = chart_df[["TimeStamp"] + value_cols].melt(
+			id_vars=["TimeStamp"],
+			var_name="Series",
+			value_name="Value",
 		)
+
+		is_time = pd.api.types.is_datetime64_any_dtype(plot_df["TimeStamp"])
+		x_type = "T" if is_time else "Q"
+
+		chart = (
+			alt.Chart(plot_df)
+			.mark_line(point=True)
+			.encode(
+				x=alt.X(f"TimeStamp:{x_type}", title="TimeStamp"),
+				y=alt.Y("Value:Q", title="Usage Peak (kwh)"),
+				color=alt.Color("Series:N", title=None),
+				tooltip=[
+					alt.Tooltip(f"TimeStamp:{x_type}", title="TimeStamp"),
+					alt.Tooltip("Series:N", title="Series"),
+					alt.Tooltip("Value:Q", title="Value", format=".4f"),
+				],
+			)
+		)
+		st.altair_chart(chart, use_container_width=True)
 
 # Show metrics without adding extra UI elements (simple text only)
 if st.session_state.metrics:
