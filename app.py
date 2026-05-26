@@ -503,7 +503,37 @@ if btn_update:
 st.caption("Predicted Data")
 st.dataframe(st.session_state.pred_df, use_container_width=True, height=260)
 
+# ==================== Trend chart (Actual vs Predicted) ====================
+if st.session_state.pred_df is not None and len(st.session_state.pred_df) > 0:
+	chart_df = st.session_state.pred_df.copy()
+	if "TimeStamp" in chart_df.columns:
+		parsed_ts = pd.to_datetime(chart_df["TimeStamp"], errors="coerce")
+		if parsed_ts.notna().any():
+			chart_df["TimeStamp"] = parsed_ts
+			chart_df = chart_df.sort_values(by="TimeStamp").dropna(subset=["TimeStamp"])
+		else:
+			# If parsing fails, keep original order/index for a sensible trend.
+			chart_df["TimeStamp"] = pd.RangeIndex(start=1, stop=len(chart_df) + 1, step=1)
+
+	value_cols = [
+		c
+		for c in ["Actual Usage Peak (kwh)", "Predicted Usage Peak (kwh)"]
+		if c in chart_df.columns
+	]
+	if value_cols and "TimeStamp" in chart_df.columns and len(chart_df) > 0:
+		st.caption("Trend")
+		st.line_chart(
+			chart_df.set_index("TimeStamp")[value_cols],
+			use_container_width=True,
+		)
+
 # Show metrics without adding extra UI elements (simple text only)
 if st.session_state.metrics:
-	metrics_text = ", ".join([f"{k}: {v:.4f}" for k, v in st.session_state.metrics.items()])
+	metrics_text = ", ".join(
+		[
+			f"{k}: {v:.4f}"
+			for k, v in st.session_state.metrics.items()
+			if k != "R2 Score"
+		]
+	)
 	st.write(metrics_text)

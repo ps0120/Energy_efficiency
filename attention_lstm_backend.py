@@ -9,7 +9,7 @@ import pandas as pd
 
 from array import array
 
-from sklearn.metrics import mean_absolute_error, mean_squared_error, r2_score
+from sklearn.metrics import mean_absolute_error, mean_squared_error
 from sklearn.preprocessing import MinMaxScaler
 
 
@@ -334,7 +334,6 @@ def train_attention_lstm(
     mae = float(mean_absolute_error(inv_y, inv_yhat))
     mape = float(np.mean(np.abs((inv_y - inv_yhat) / inv_y)) * 100)
     accuracy = float(max(0, 100 - mape))
-    r_squared = float(r2_score(inv_y, inv_yhat))
     rmse_percentage = float((rmse / np.mean(inv_y)) * 100)
 
     from sklearn.metrics import median_absolute_error
@@ -369,7 +368,6 @@ def train_attention_lstm(
         "Test MAE": mae,
         "Test MAPE(%)": mape,
         "Test Accuracy(%)": accuracy,
-        "R2 Score": r_squared,
         "RMSE Percentage": rmse_percentage,
         "Median Absolute Error": mdae,
     }
