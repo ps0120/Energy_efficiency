@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import shutil
 from pathlib import Path
 
 import pandas as pd
@@ -35,7 +36,21 @@ _PRED_CSV = _STATE_DIR / "pred_df.csv"
 _METRICS_JSON = _STATE_DIR / "metrics.json"
 
 
+PERSIST_STATE_TO_DISK = False
+
+
+def _clear_disk_state_best_effort() -> None:
+	if not _STATE_DIR.exists():
+		return
+	try:
+		shutil.rmtree(_STATE_DIR)
+	except Exception:
+		return
+
+
 def _restore_state_from_disk() -> None:
+	if not PERSIST_STATE_TO_DISK:
+		return
 	try:
 		if _DATA_CSV.exists():
 			st.session_state.data_df = pd.read_csv(_DATA_CSV)
@@ -52,6 +67,8 @@ def _restore_state_from_disk() -> None:
 
 
 def _persist_state_to_disk() -> None:
+	if not PERSIST_STATE_TO_DISK:
+		return
 	try:
 		_STATE_DIR.mkdir(parents=True, exist_ok=True)
 		st.session_state.data_df.to_csv(_DATA_CSV, index=False)
@@ -94,7 +111,7 @@ def _init_state() -> None:
 		)
 	if "metrics" not in st.session_state:
 		st.session_state.metrics = {}
-	if "_restored_from_disk" not in st.session_state:
+	if PERSIST_STATE_TO_DISK and "_restored_from_disk" not in st.session_state:
 		st.session_state._restored_from_disk = True
 		_restore_state_from_disk()
 
@@ -257,6 +274,9 @@ def _field_validity() -> dict[str, bool]:
 
 	return validity
 
+
+if not PERSIST_STATE_TO_DISK:
+	_clear_disk_state_best_effort()
 
 _init_state()
 
