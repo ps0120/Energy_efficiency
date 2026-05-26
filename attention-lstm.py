@@ -1,4 +1,3 @@
-from distutils import command
 from operator import truediv
 from textwrap import fill
 
@@ -17,7 +16,7 @@ from keras.models import Sequential, Model
 from keras.layers import Dense, Dropout, LSTM, Input, multiply, Flatten, Activation, Permute, RepeatVector, Lambda, Bidirectional
 from keras.callbacks import EarlyStopping
 import keras.backend as K
-from tensorflow.keras.optimizers import Adam
+from keras.optimizers import Adam
 
 from sklearn.metrics import mean_squared_error, mean_absolute_error, r2_score
 from sklearn.preprocessing import MinMaxScaler
@@ -31,7 +30,7 @@ def fix_date_format(date_str):
     if pd.isna(date_str):
         return pd.NaT
     
-    date_str = str(date_str).split(' ')[0]
+    date_str = str(date_str).strip().split(' ')[0]
     parts = date_str.replace('-', '/').split('/')
     
     if len(parts) != 3:
@@ -40,20 +39,25 @@ def fix_date_format(date_str):
     try:
         first = int(float(parts[0]))
         second = int(float(parts[1]))
-        year = int(float(parts[2]))
-        
-        if year < 100:
-            year = year + 2000
-        
-        # if first > 12，then DD/MM/YYYY
-        # if first <= 12，then MM/DD/YYYY
-        if first > 12:
-            day = first
-            month = second
+        third = int(float(parts[2]))
+
+        # Support common formats:
+        # - YYYY-MM-DD / YYYY/MM/DD (year first)
+        # - DD/MM/YYYY (day first)
+        # - MM/DD/YYYY (month first)
+        if first > 31:
+            year, month, day = first, second, third
         else:
-            month = first
-            day = second
-        
+            year = third
+            if year < 100:
+                year = year + 2000
+
+            # if first > 12 -> DD/MM/YYYY else -> MM/DD/YYYY
+            if first > 12:
+                day, month = first, second
+            else:
+                month, day = first, second
+
         return pd.Timestamp(year=year, month=month, day=day)
     except:
         return pd.NaT
@@ -144,8 +148,9 @@ def save_info():
                         energy = 0 
         
         
-        string_date = f"{day_info}/{month_info}/{year_info}"
-        important_date = string_date
+        # Keep TimeStamp format consistent with the dataset/training pipeline
+        # (YYYY-MM-DD) to avoid mixed date formats in tables.
+        important_date = pd.Timestamp(year=year_info, month=month_info, day=day_info).strftime('%Y-%m-%d')
         
     except Exception as e:
         command_text.config(text=f"Error: {str(e)}")
@@ -200,10 +205,13 @@ def train():
     global full_data  
     
     #Load the MMU historical dataset
-    history = pd.read_excel('MMU Energy Consumption 2018-2021.xlsx')
+    history = pd.read_excel('MMU Energy Consumption 2018-2021.xlsx', dtype={'TimeStamp': str})
+    history['TimeStamp'] = history['TimeStamp'].apply(fix_date_format)
+    history['TimeStamp'] = pd.to_datetime(history['TimeStamp'], errors='coerce')
+    history['TimeStamp'] = history['TimeStamp'].dt.strftime('%Y-%m-%d')
     
     #Convert TimeStamp to unified date format
-    df['TimeStamp'] = pd.to_datetime(df['TimeStamp'], dayfirst=True)
+    df['TimeStamp'] = pd.to_datetime(df['TimeStamp'], dayfirst=True, errors='coerce')
     df['TimeStamp'] = df['TimeStamp'].dt.strftime('%Y-%m-%d')
     
     dataset = pd.concat([history, df], ignore_index=True)

@@ -507,4 +507,3 @@ st.dataframe(st.session_state.pred_df, use_container_width=True, height=260)
 if st.session_state.metrics:
 	metrics_text = ", ".join([f"{k}: {v:.4f}" for k, v in st.session_state.metrics.items()])
 	st.write(metrics_text)
-
