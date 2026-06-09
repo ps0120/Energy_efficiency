@@ -9,12 +9,43 @@ import pandas as pd
 
 from array import array
 
-from sklearn.metrics import mean_absolute_error, mean_squared_error
+from sklearn.metrics import mean_absolute_error, mean_squared_error, median_absolute_error
 from sklearn.preprocessing import MinMaxScaler
+import joblib
+from pathlib import Path
 
 
 # Keep file/path names identical to try3 - attention-lstm.py
 HISTORY_DEFAULT_PATH = "MMU Energy Consumption 2018-2021.xlsx"
+DEFAULT_MODEL_PATH = "lstm_model.keras"
+DEFAULT_SCALER_PATH = "scaler.pkl"
+
+FEATURE_COLS = [
+    "Usage Peak (kwh)",
+    "Average pressure (Hg)",
+    "Average temperature",
+    "Average humidity (%)",
+    "Average wind speed (m/s)",
+    "Rainfall duration (min)",
+    "Rainfall amount (mm)",
+    "Type of day",
+    "Type of Lockdown",
+]
+
+N_DAYS = 7
+N_FEATURES = 9
+HOLDOUT_FRACTION = 0.2
+HOLDOUT_RANDOM_SEED = 42
+USER_YEAR_MIN = 2021
+USER_YEAR_MAX = 2023
+HISTORY_MAX_YEAR = 2021
+
+
+def model_artifacts_exist(
+    model_path: str = DEFAULT_MODEL_PATH,
+    scaler_path: str = DEFAULT_SCALER_PATH,
+) -> bool:
+    return Path(model_path).exists() and Path(scaler_path).exists()
 
 
 def _ensure_history_file_exists(path: str) -> None:
@@ -79,12 +110,12 @@ def estimate_usage_peak_from_history(
     if day < 1 or day > 31 or month < 1 or month > 12:
         raise ValueError("Invalid date entered")
 
-    if year < 2018 or year > 2022:
-        raise ValueError("Invalid year, must be between 2018-2022")
+    if year < USER_YEAR_MIN or year > USER_YEAR_MAX:
+        raise ValueError(f"Invalid year, must be between {USER_YEAR_MIN}-{USER_YEAR_MAX}")
 
     query_year = year
-    if year == 2022:
-        query_year = 2021
+    if year > HISTORY_MAX_YEAR:
+        query_year = HISTORY_MAX_YEAR
 
     df2 = pd.DataFrame()
     df2["Usage Peak (kwh)"] = history["Usage Peak (kwh)"]
@@ -204,11 +235,77 @@ class TrainResult:
     full_data: array
 
 
+def _inverse_transform_usage_peak(scaler: MinMaxScaler, scaled_targets: np.ndarray) -> np.ndarray:
+    inv_full = np.zeros((len(scaled_targets), N_FEATURES))
+    inv_full[:, 0] = scaled_targets
+    return scaler.inverse_transform(inv_full)[:, 0]
+
+
+def _compute_holdout_metrics(y_true: np.ndarray, y_pred: np.ndarray) -> Dict[str, float]:
+    rmse = float(np.sqrt(mean_squared_error(y_true, y_pred)))
+    mae = float(mean_absolute_error(y_true, y_pred))
+    mape = float(np.mean(np.abs((y_true - y_pred) / y_true)) * 100)
+    return {
+        "Hold-out RMSE": rmse,
+        "Hold-out MAE": mae,
+        "Hold-out MAPE(%)": mape,
+        "Hold-out Accuracy(%)": float(max(0, 100 - mape)),
+        "RMSE Percentage": float((rmse / np.mean(y_true)) * 100),
+        "Median Absolute Error": float(median_absolute_error(y_true, y_pred)),
+    }
+
+
+def _predict_user_rows(
+    *,
+    history_train: pd.DataFrame,
+    user_df: pd.DataFrame,
+    model,
+    scaler: MinMaxScaler,
+) -> pd.DataFrame:
+    if user_df is None or len(user_df) == 0:
+        return pd.DataFrame(columns=["TimeStamp", "Predicted Usage Peak (kwh)"])
+
+    df = user_df.copy()
+    df["TimeStamp"] = pd.to_datetime(df["TimeStamp"], dayfirst=True)
+    df["TimeStamp"] = df["TimeStamp"].dt.strftime("%Y-%m-%d")
+
+    dataset = pd.concat([history_train, df], ignore_index=True)
+    values = dataset[FEATURE_COLS].values
+    num_user = len(df)
+
+    scaled = scaler.transform(values)
+    reframed = series_to_supervised(scaled, N_DAYS, 1)
+    reframed_values = reframed.values
+
+    n_history_sequences = len(reframed_values) - num_user
+    if n_history_sequences < 0:
+        raise ValueError("Not enough history to create sequences for prediction")
+
+    obs = N_DAYS * N_FEATURES
+    user_sequences = reframed_values[n_history_sequences:, :]
+    user_X = user_sequences[:, :obs].reshape((len(user_sequences), N_DAYS, N_FEATURES))
+
+    yhat = model.predict(user_X, verbose=0)
+    inv_yhat = _inverse_transform_usage_peak(scaler, yhat[:, 0])
+
+    start_index = len(dataset) - num_user
+    timestamps = dataset["TimeStamp"].iloc[start_index : start_index + len(inv_yhat)].astype(str)
+
+    return pd.DataFrame(
+        {
+            "TimeStamp": list(timestamps.values),
+            "Predicted Usage Peak (kwh)": inv_yhat[: len(timestamps)],
+        }
+    )
+
+
 def train_attention_lstm(
     *,
     history: Optional[pd.DataFrame] = None,
     user_df: pd.DataFrame,
     history_path: str = HISTORY_DEFAULT_PATH,
+    save_model_path: Optional[str] = None,
+    save_scaler_path: Optional[str] = None,
 ) -> TrainResult:
     try:
         from tensorflow.keras.callbacks import EarlyStopping  # type: ignore[import-not-found]
@@ -220,6 +317,7 @@ def train_attention_lstm(
             Input,
             LSTM,
             multiply,
+            Softmax,
         )
         from tensorflow.keras.models import Model  # type: ignore[import-not-found]
         from tensorflow.keras.optimizers import Adam  # type: ignore[import-not-found]
@@ -231,58 +329,66 @@ def train_attention_lstm(
             f"Original import error: {e}"
         )
 
-    # Match try3 train(): it always reloads history from Excel
     if user_df is None:
         raise ValueError("user_df is required")
 
-    df = user_df.copy()
-
     _ensure_history_file_exists(history_path)
     history_train = pd.read_excel(history_path)
-
-    df["TimeStamp"] = pd.to_datetime(df["TimeStamp"], dayfirst=True)
-    df["TimeStamp"] = df["TimeStamp"].dt.strftime("%Y-%m-%d")
-
-    dataset = pd.concat([history_train, df], ignore_index=True)
-
-    values = dataset[
-        [
-            "Usage Peak (kwh)",
-            "Average pressure (Hg)",
-            "Average temperature",
-            "Average humidity (%)",
-            "Average wind speed (m/s)",
-            "Rainfall duration (min)",
-            "Rainfall amount (mm)",
-            "Type of day",
-            "Type of Lockdown",
-        ]
-    ].values
+    history_values = history_train[FEATURE_COLS].values
 
     scaler = MinMaxScaler(feature_range=(0, 1))
-    scaled = scaler.fit_transform(values)
+    scaler.fit(history_values)
+    scaled_history = scaler.transform(history_values)
 
-    n_days = 7
-    n_features = 9
-    reframed = series_to_supervised(scaled, n_days, 1)
-    values = reframed.values
+    reframed_history = series_to_supervised(scaled_history, N_DAYS, 1)
+    values_history = reframed_history.values
 
-    num_test = len(df) if len(df) > 0 else 10
-    n_train_time = len(values) - num_test
-    train = values[:n_train_time, :]
-    test = values[n_train_time:, :]
+    if len(values_history) < 5:
+        raise ValueError("Not enough historical data to train/evaluate")
 
-    obs = n_days * n_features
-    train_X, train_y = train[:, :obs], train[:, -n_features]
-    test_X, test_y = test[:, :obs], test[:, -n_features]
+    rng = np.random.RandomState(HOLDOUT_RANDOM_SEED)
+    all_idx = np.arange(len(values_history))
+    rng.shuffle(all_idx)
+    test_size = max(1, int(round(len(values_history) * HOLDOUT_FRACTION)))
+    test_idx = np.sort(all_idx[:test_size])
+    train_pool_idx = np.sort(all_idx[test_size:])
 
-    train_X = train_X.reshape((train_X.shape[0], n_days, n_features))
-    test_X = test_X.reshape((test_X.shape[0], n_days, n_features))
+    val_size = max(1, int(round(len(train_pool_idx) * 0.1))) if len(train_pool_idx) > 2 else 0
+    if val_size > 0:
+        val_idx = np.sort(train_pool_idx[:val_size])
+        train_idx = np.sort(train_pool_idx[val_size:])
+    else:
+        val_idx = np.array([], dtype=int)
+        train_idx = train_pool_idx
+
+    train = values_history[train_idx]
+    test = values_history[test_idx]
+    val = values_history[val_idx] if len(val_idx) > 0 else None
+
+    obs = N_DAYS * N_FEATURES
+    train_X, train_y = train[:, :obs], train[:, -N_FEATURES]
+    test_X, test_y = test[:, :obs], test[:, -N_FEATURES]
+
+    if val is not None:
+        val_X, val_y = val[:, :obs], val[:, -N_FEATURES]
+    else:
+        val_X, val_y = None, None
+
+    train_X = train_X.reshape((train_X.shape[0], N_DAYS, N_FEATURES))
+    test_X = test_X.reshape((test_X.shape[0], N_DAYS, N_FEATURES))
+    if val_X is not None:
+        val_X = val_X.reshape((val_X.shape[0], N_DAYS, N_FEATURES))
 
     inputs = Input(shape=(train_X.shape[1], train_X.shape[2]))
-    lstm_out = Bidirectional(LSTM(100, return_sequences=True))(inputs)
+    # Reduced LSTM units to 64 to prevent overfitting on small datasets
+    lstm_out = Bidirectional(LSTM(64, return_sequences=True))(inputs)
 
-    attention_probs = Dense(200, activation="softmax", name="attention_vec")(lstm_out)
+    # Correct Temporal Attention Mechanism
+    # Calculate score for each time step (day)
+    attention_scores = Dense(1, activation="tanh")(lstm_out)
+    # Apply softmax across the temporal dimension (axis=1)
+    attention_probs = Softmax(axis=1, name="attention_vec")(attention_scores)
+    # Multiply LSTM outputs by temporal weights
     attention_mul = multiply([lstm_out, attention_probs])
 
     attention_mul_compressed = Flatten()(attention_mul)
@@ -291,7 +397,7 @@ def train_attention_lstm(
 
     model = Model(inputs=inputs, outputs=output)
     model.compile(
-        loss="mean_squared_error",
+        loss="huber",  # In Keras/TensorFlow, the string identifier is "huber", not "huber_loss"
         optimizer=Adam(learning_rate=0.0001),
         metrics=["mae"],
     )
@@ -303,73 +409,77 @@ def train_attention_lstm(
         train_y,
         epochs=500,
         batch_size=32,
-        validation_data=(test_X, test_y),
+        validation_data=(val_X, val_y) if val_X is not None else None,
         verbose=0,
         shuffle=False,
-        callbacks=[early_stop],
+        callbacks=[early_stop] if val_X is not None else [],
     )
 
     model.evaluate(test_X, test_y, batch_size=32, verbose=0)
     yhat = model.predict(test_X, verbose=0)
 
-    inv_yhat_full = np.zeros((len(yhat), n_features))
-    inv_yhat_full[:, 0] = yhat[:, 0]
-    inv_yhat = scaler.inverse_transform(inv_yhat_full)[:, 0]
+    inv_yhat = _inverse_transform_usage_peak(scaler, np.ravel(yhat))
+    inv_y = _inverse_transform_usage_peak(scaler, np.ravel(test_y))
+    metrics = _compute_holdout_metrics(inv_y, inv_yhat)
 
-    inv_y_full = np.zeros((len(test_y), n_features))
-    inv_y_full[:, 0] = test_y
-    inv_y = scaler.inverse_transform(inv_y_full)[:, 0]
-
-    inv_yhat_median = np.median(inv_yhat)
-    inv_yhat_std = np.std(inv_yhat)
-
-    for i in range(len(inv_yhat)):
-        if abs(inv_yhat[i] - inv_yhat_median) > 2 * inv_yhat_std:
-            if i == 0 and len(inv_yhat) > 1:
-                inv_yhat[i] = inv_yhat[i + 1]
-            elif i > 0:
-                inv_yhat[i] = (inv_yhat[i - 1] + inv_yhat[i]) / 2
-
-    rmse = float(np.sqrt(mean_squared_error(inv_y, inv_yhat)))
-    mae = float(mean_absolute_error(inv_y, inv_yhat))
-    mape = float(np.mean(np.abs((inv_y - inv_yhat) / inv_y)) * 100)
-    accuracy = float(max(0, 100 - mape))
-    rmse_percentage = float((rmse / np.mean(inv_y)) * 100)
-
-    from sklearn.metrics import median_absolute_error
-
-    mdae = float(median_absolute_error(inv_y, inv_yhat))
-
-    arr_actual = array("f", [])
-    arr_forecast = array("f", [])
-
-    for i in range(len(inv_y)):
-        number = len(dataset) - num_test + i
-        actual = dataset.iloc[number]["Usage Peak (kwh)"]
-        forecast = inv_yhat[i]
-        arr_actual.append(float(actual))
-        arr_forecast.append(float(forecast))
-
-    full_data = arr_forecast
-
-    start_index = len(dataset) - num_test
-    timestamps = dataset["TimeStamp"].iloc[start_index : start_index + len(inv_y)].astype(str)
-
-    predicted_df = pd.DataFrame(
-        {
-            "TimeStamp": list(timestamps.values),
-            "Actual Usage Peak (kwh)": inv_y[: len(timestamps)],
-            "Predicted Usage Peak (kwh)": inv_yhat[: len(timestamps)],
-        }
+    predicted_df = _predict_user_rows(
+        history_train=history_train,
+        user_df=user_df,
+        model=model,
+        scaler=scaler,
     )
+    full_data = array("f", [float(x) for x in predicted_df["Predicted Usage Peak (kwh)"].tolist()])
 
-    metrics = {
-        "Test RMSE": rmse,
-        "Test MAE": mae,
-        "Test MAPE(%)": mape,
-        "Test Accuracy(%)": accuracy,
-        "RMSE Percentage": rmse_percentage,
-        "Median Absolute Error": mdae,
-    }
+    # Optionally save trained model and fitted scaler for later inference
+    if save_model_path and save_scaler_path:
+        try:
+            Path(save_model_path).parent.mkdir(parents=True, exist_ok=True)
+            model.save(save_model_path)
+            Path(save_scaler_path).parent.mkdir(parents=True, exist_ok=True)
+            joblib.dump(scaler, save_scaler_path)
+        except Exception:
+            # Do not fail the training if saving fails; just continue
+            pass
 
     return TrainResult(predicted_df=predicted_df, metrics=metrics, full_data=full_data)
+
+
+def load_saved_model_and_scaler(model_path: str, scaler_path: str):
+    """Load a saved Keras model and a scaler (joblib).
+
+    Raises FileNotFoundError if files are missing.
+    """
+    if not Path(model_path).exists():
+        raise FileNotFoundError(f"Saved model not found: {model_path}")
+    if not Path(scaler_path).exists():
+        raise FileNotFoundError(f"Saved scaler not found: {scaler_path}")
+
+    try:
+        from tensorflow.keras.models import load_model as keras_load_model  # type: ignore
+    except Exception as e:
+        raise RuntimeError(f"TensorFlow is not available: {e}")
+
+    model = keras_load_model(model_path)
+    scaler = joblib.load(scaler_path)
+    return model, scaler
+
+
+def predict_with_saved_model(*, user_df: pd.DataFrame, model_path: str, scaler_path: str, history_path: str = HISTORY_DEFAULT_PATH) -> TrainResult:
+    """Run inference on user-entered rows using a saved model and scaler.
+
+    Metrics are not computed here because user rows have no verified ground-truth labels.
+    """
+    model, scaler = load_saved_model_and_scaler(model_path, scaler_path)
+
+    _ensure_history_file_exists(history_path)
+    history_train = pd.read_excel(history_path)
+
+    predicted_df = _predict_user_rows(
+        history_train=history_train,
+        user_df=user_df,
+        model=model,
+        scaler=scaler,
+    )
+    full_data = array("f", [float(x) for x in predicted_df["Predicted Usage Peak (kwh)"].tolist()])
+
+    return TrainResult(predicted_df=predicted_df, metrics={}, full_data=full_data)

@@ -20,7 +20,7 @@ st.markdown("### MMU Energy Prediction")
 _RANGES = {
 	"day": (1, 31),
 	"month": (1, 12),
-	"year": (2019, 2022),
+	"year": (backend.USER_YEAR_MIN, backend.USER_YEAR_MAX),
 	"temperature": (22.0, 31.0),
 	"humidity": (58.0, 95.0),
 	"pressure": (1006.0, 1014.0),
@@ -107,10 +107,14 @@ def _init_state() -> None:
 		)
 	if "pred_df" not in st.session_state:
 		st.session_state.pred_df = pd.DataFrame(
-			columns=["TimeStamp", "Actual Usage Peak (kwh)", "Predicted Usage Peak (kwh)"]
+			columns=["TimeStamp", "Predicted Usage Peak (kwh)"]
 		)
 	if "metrics" not in st.session_state:
 		st.session_state.metrics = {}
+	if "model_path" not in st.session_state:
+		st.session_state.model_path = backend.DEFAULT_MODEL_PATH
+	if "scaler_path" not in st.session_state:
+		st.session_state.scaler_path = backend.DEFAULT_SCALER_PATH
 	if PERSIST_STATE_TO_DISK and "_restored_from_disk" not in st.session_state:
 		st.session_state._restored_from_disk = True
 		_restore_state_from_disk()
@@ -211,7 +215,7 @@ def _field_validity() -> dict[str, bool]:
 		),
 	)
 	_check(
-		"Year (YYYY) [2019-2022] *",
+		f"Year (YYYY) [{backend.USER_YEAR_MIN}-{backend.USER_YEAR_MAX}] *",
 		lambda: _require_int_range(
 			"Year", int(year), int(_RANGES["year"][0]), int(_RANGES["year"][1])
 		),
@@ -297,7 +301,7 @@ with col1_2:
 	)
 with col1_3:
 	year = st.text_input(
-		"Year (YYYY) [2019-2022] *",
+		f"Year (YYYY) [{backend.USER_YEAR_MIN}-{backend.USER_YEAR_MAX}] *",
 		value=str(int(_RANGES["year"][0])),
 	)
 
@@ -494,19 +498,43 @@ with t_col3:
 def _handle_train() -> None:
 	history = _load_history_cached(st.session_state.history_path)
 	with st.spinner("Training model... this may take a while"):
-		result = backend.train_attention_lstm(history=history, user_df=st.session_state.data_df)
+		result = backend.train_attention_lstm(
+			history=history,
+			user_df=st.session_state.data_df,
+			save_model_path=st.session_state.model_path,
+			save_scaler_path=st.session_state.scaler_path,
+		)
+	if not backend.model_artifacts_exist(
+		st.session_state.model_path, st.session_state.scaler_path
+	):
+		raise RuntimeError("Model training finished but saved files were not found.")
 	st.session_state.pred_df = result.predicted_df
 	st.session_state.metrics = result.metrics
-	st.session_state.status = "Training complete"
+	st.session_state.status = (
+		"Training complete. Model saved — use Update to predict new entries without retraining."
+	)
 	_persist_state_to_disk()
 
 
 def _handle_update() -> None:
-	# In the original Tkinter app, Update displays predictions after Train.
-	if st.session_state.pred_df is None or len(st.session_state.pred_df) == 0:
-		st.session_state.status = "Please click Train first."
-	else:
-		st.session_state.status = "Predicted data updated"
+	if not backend.model_artifacts_exist(
+		st.session_state.model_path, st.session_state.scaler_path
+	):
+		st.session_state.status = "Please click Train first to build the model."
+		return
+	if st.session_state.data_df is None or len(st.session_state.data_df) == 0:
+		st.session_state.status = "Please enter data first, then click Update."
+		return
+	with st.spinner("Predicting..."):
+		result = backend.predict_with_saved_model(
+			user_df=st.session_state.data_df,
+			model_path=st.session_state.model_path,
+			scaler_path=st.session_state.scaler_path,
+			history_path=st.session_state.history_path,
+		)
+	st.session_state.pred_df = result.predicted_df
+	st.session_state.status = "Prediction complete"
+	_persist_state_to_disk()
 
 
 if btn_train:
@@ -523,7 +551,7 @@ if btn_update:
 st.caption("Predicted Data")
 st.dataframe(st.session_state.pred_df, use_container_width=True, height=260)
 
-# ==================== Trend chart (Actual vs Predicted) ====================
+# ==================== Trend chart (user predictions) ====================
 if st.session_state.pred_df is not None and len(st.session_state.pred_df) > 0:
 	chart_df = st.session_state.pred_df.copy()
 	if "TimeStamp" in chart_df.columns:
@@ -534,11 +562,7 @@ if st.session_state.pred_df is not None and len(st.session_state.pred_df) > 0:
 		else:
 			chart_df["TimeStamp"] = pd.RangeIndex(start=1, stop=len(chart_df) + 1, step=1)
 
-	value_cols = [
-		c
-		for c in ["Actual Usage Peak (kwh)", "Predicted Usage Peak (kwh)"]
-		if c in chart_df.columns
-	]
+	value_cols = [c for c in ["Predicted Usage Peak (kwh)"] if c in chart_df.columns]
 	if value_cols and "TimeStamp" in chart_df.columns and len(chart_df) > 0:
 		st.caption("Trend")
 
@@ -569,6 +593,7 @@ if st.session_state.pred_df is not None and len(st.session_state.pred_df) > 0:
 
 # Show metrics without adding extra UI elements (simple text only)
 if st.session_state.metrics:
+	st.caption("Model evaluation (20% historical hold-out, true Usage Peak labels)")
 	metrics_text = ", ".join(
 		[
 			f"{k}: {v:.4f}"
