@@ -458,7 +458,8 @@ def _handle_enter() -> None:
 def _handle_clear() -> None:
 	st.session_state.data_df = st.session_state.data_df.iloc[0:0]
 	st.session_state.pred_df = st.session_state.pred_df.iloc[0:0]
-	st.session_state.metrics = {}
+	# Preserve metrics displayed in the UI when clearing user inputs
+	# (do not reset `st.session_state.metrics` here)
 	st.session_state.status = ""
 	_persist_state_to_disk()
 
@@ -483,7 +484,10 @@ else:
 
 # ==================== Data table ====================
 st.caption("Data")
-st.dataframe(st.session_state.data_df, use_container_width=True, height=260)
+# Don't show the historical "Usage Peak (kwh)" column in the UI table — keep it in the backend
+data_display_df = st.session_state.data_df.copy()
+data_display_df = data_display_df.drop(columns=["Usage Peak (kwh)"], errors="ignore")
+st.dataframe(data_display_df, use_container_width=True, height=260)
 
 st.write("")
 
