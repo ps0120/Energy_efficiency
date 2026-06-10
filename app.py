@@ -597,7 +597,7 @@ if st.session_state.pred_df is not None and len(st.session_state.pred_df) > 0:
 
 # Show metrics without adding extra UI elements (simple text only)
 if st.session_state.metrics:
-	st.caption("Model evaluation (20% historical hold-out, true Usage Peak labels)")
+	
 	metrics_text = ", ".join(
 		[
 			f"{k}: {v:.4f}"

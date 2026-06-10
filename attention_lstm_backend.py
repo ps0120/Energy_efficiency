@@ -35,7 +35,7 @@ FEATURE_COLS = [
 N_DAYS = 7
 N_FEATURES = 9
 HOLDOUT_FRACTION = 0.2
-HOLDOUT_RANDOM_SEED = 42
+TEST_TAIL_SIZE = 100
 USER_YEAR_MIN = 2021
 USER_YEAR_MAX = 2023
 HISTORY_MAX_YEAR = 2021
@@ -106,16 +106,12 @@ def estimate_usage_peak_from_history(
     type_of_day: int,
     type_of_lockdown: int,
 ) -> float:
-    # Same logic as save_info() in try3
+   
     if day < 1 or day > 31 or month < 1 or month > 12:
         raise ValueError("Invalid date entered")
 
     if year < USER_YEAR_MIN or year > USER_YEAR_MAX:
         raise ValueError(f"Invalid year, must be between {USER_YEAR_MIN}-{USER_YEAR_MAX}")
-
-    query_year = year
-    if year > HISTORY_MAX_YEAR:
-        query_year = HISTORY_MAX_YEAR
 
     df2 = pd.DataFrame()
     df2["Usage Peak (kwh)"] = history["Usage Peak (kwh)"]
@@ -129,36 +125,16 @@ def estimate_usage_peak_from_history(
     lockdown_mask = df2["Type of Lockdown"] == type_of_lockdown
     day_type_mask = df2["Type of day"] == type_of_day
 
-    filtered_by_type = df2[lockdown_mask & day_type_mask]
+    filtered = df2[
+        (df2["Type of day"] == type_of_day) &
+        (df2["Type of Lockdown"] == type_of_lockdown)
+    ]
 
-    exact_date_mask = (
-        (filtered_by_type["Year"] == query_year)
-        & (filtered_by_type["Month"] == month)
-        & (filtered_by_type["Day"] == day)
-    )
-    exact_date_data = filtered_by_type[exact_date_mask]
-
-    if len(exact_date_data) == 1:
-        energy = exact_date_data["Usage Peak (kwh)"].mean()
+    if len(filtered) > 0:
+        energy = filtered["Usage Peak (kwh)"].mean()
     else:
-        month_mask = (filtered_by_type["Year"] == query_year) & (
-            filtered_by_type["Month"] == month
-        )
-        month_data = filtered_by_type[month_mask]
-
-        if len(month_data) > 0:
-            energy = month_data["Usage Peak (kwh)"].mean()
-        else:
-            year_mask = filtered_by_type["Year"] == query_year
-            year_data = filtered_by_type[year_mask]
-
-            if len(year_data) > 0:
-                energy = year_data["Usage Peak (kwh)"].mean()
-            else:
-                if len(filtered_by_type) > 0:
-                    energy = filtered_by_type["Usage Peak (kwh)"].mean()
-                else:
-                    energy = 0
+       
+        energy = df2["Usage Peak (kwh)"].mean()
 
     return float(energy)
 
@@ -246,10 +222,10 @@ def _compute_holdout_metrics(y_true: np.ndarray, y_pred: np.ndarray) -> Dict[str
     mae = float(mean_absolute_error(y_true, y_pred))
     mape = float(np.mean(np.abs((y_true - y_pred) / y_true)) * 100)
     return {
-        "Hold-out RMSE": rmse,
-        "Hold-out MAE": mae,
-        "Hold-out MAPE(%)": mape,
-        "Hold-out Accuracy(%)": float(max(0, 100 - mape)),
+        " RMSE": rmse,
+        " MAE": mae,
+        " MAPE(%)": mape,
+        " Accuracy(%)": float(max(0, 100 - mape)),
         "RMSE Percentage": float((rmse / np.mean(y_true)) * 100),
         "Median Absolute Error": float(median_absolute_error(y_true, y_pred)),
     }
@@ -333,7 +309,7 @@ def train_attention_lstm(
         raise ValueError("user_df is required")
 
     _ensure_history_file_exists(history_path)
-    history_train = pd.read_excel(history_path)
+    history_train = load_history(history_path)
     history_values = history_train[FEATURE_COLS].values
 
     scaler = MinMaxScaler(feature_range=(0, 1))
@@ -346,17 +322,18 @@ def train_attention_lstm(
     if len(values_history) < 5:
         raise ValueError("Not enough historical data to train/evaluate")
 
-    rng = np.random.RandomState(HOLDOUT_RANDOM_SEED)
-    all_idx = np.arange(len(values_history))
-    rng.shuffle(all_idx)
-    test_size = max(1, int(round(len(values_history) * HOLDOUT_FRACTION)))
-    test_idx = np.sort(all_idx[:test_size])
-    train_pool_idx = np.sort(all_idx[test_size:])
+    test_size = min(TEST_TAIL_SIZE, len(values_history) - 1)
+    if test_size < 1:
+        raise ValueError("Not enough historical data to create a test split")
+
+    split_point = len(values_history) - test_size
+    train_pool_idx = np.arange(split_point)
+    test_idx = np.arange(split_point, len(values_history))
 
     val_size = max(1, int(round(len(train_pool_idx) * 0.1))) if len(train_pool_idx) > 2 else 0
     if val_size > 0:
-        val_idx = np.sort(train_pool_idx[:val_size])
-        train_idx = np.sort(train_pool_idx[val_size:])
+        val_idx = train_pool_idx[-val_size:]
+        train_idx = train_pool_idx[:-val_size]
     else:
         val_idx = np.array([], dtype=int)
         train_idx = train_pool_idx
