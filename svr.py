@@ -6,6 +6,7 @@ import tkinter as tk
 from turtle import width 
 from tkinter import *
 from tkinter import ttk
+from numpy import ma
 import pandas as pd
 import calendar
 import numpy as np
@@ -313,9 +314,14 @@ def train():
     rmse_percentage = (rmse / np.mean(inv_y)) * 100
     print('RMSE Percentage: %.2f%%' % rmse_percentage)
     
-    from sklearn.metrics import median_absolute_error
-    mdae = median_absolute_error(inv_y, inv_yhat)
-    print('Median Absolute Error: %.3f' % mdae)
+    from sklearn.metrics import max_error
+    mdae = max_error(inv_y, inv_yhat)
+    print('Max Absolute Error: %.3f' % mdae)
+
+   
+    acc = float(max(0, 100 - mape))
+    print('Accuracy: %.2f%%' % acc)
+
 
     arr_actual = array('f',[])
     arr_forecast = array('f',[])

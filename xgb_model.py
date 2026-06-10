@@ -13,6 +13,10 @@ import matplotlib.pyplot as plt
 from array import *
 plt.style.use('fivethirtyeight')
 
+
+import matplotlib
+matplotlib.use("Agg") 
+import matplotlib.pyplot as plt
 from xgboost import XGBRegressor
 from sklearn.metrics import mean_squared_error, mean_absolute_error
 from sklearn.preprocessing import MinMaxScaler
@@ -323,9 +327,14 @@ def train():
     rmse_percentage = (rmse / np.mean(inv_y)) * 100
     print('RMSE Percentage: %.2f%%' % rmse_percentage)
     
-    from sklearn.metrics import median_absolute_error
-    mdae = median_absolute_error(inv_y, inv_yhat)
-    print('Median Absolute Error: %.3f' % mdae)
+    from sklearn.metrics import max_error
+    mdae = max_error(inv_y, inv_yhat)
+    print('Max Absolute Error: %.3f' % mdae)
+
+   
+    acc = float(max(0, 100 - mape))
+    print('Accuracy: %.2f%%' % acc)
+
 
     arr_actual = array('f',[])
     arr_forecast = array('f',[])

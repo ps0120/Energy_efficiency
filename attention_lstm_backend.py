@@ -154,7 +154,7 @@ def build_user_row(
     rainfall_amount: float,
     wind_speed: float,
 ) -> Dict[str, object]:
-    # Same columns and ordering as `df.loc[...] = [...]` in try3
+   
     energy = estimate_usage_peak_from_history(
         history,
         day=day,
@@ -181,7 +181,7 @@ def build_user_row(
 
 
 def series_to_supervised(data, n_in=1, n_out=1, dropnan=True):
-    # Keep behavior identical to try3
+    
     n_vars = 1 if type(data) is list else data.shape[1]
     df = pd.DataFrame(data)
     cols, names = list(), list()
@@ -227,7 +227,7 @@ def _compute_holdout_metrics(y_true: np.ndarray, y_pred: np.ndarray) -> Dict[str
         " MAPE(%)": mape,
         " Accuracy(%)": float(max(0, 100 - mape)),
         "RMSE Percentage": float((rmse / np.mean(y_true)) * 100),
-        "Median Absolute Error": float(median_absolute_error(y_true, y_pred)),
+        "Max Absolute Error": float(np.max(np.abs(y_true - y_pred))),
     }
 
 
