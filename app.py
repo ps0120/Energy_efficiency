@@ -115,6 +115,8 @@ def _init_state() -> None:
 		st.session_state.model_path = backend.DEFAULT_MODEL_PATH
 	if "scaler_path" not in st.session_state:
 		st.session_state.scaler_path = backend.DEFAULT_SCALER_PATH
+	if "has_trained_model" not in st.session_state:
+		st.session_state.has_trained_model = False
 	if PERSIST_STATE_TO_DISK and "_restored_from_disk" not in st.session_state:
 		st.session_state._restored_from_disk = True
 		_restore_state_from_disk()
@@ -514,6 +516,7 @@ def _handle_train() -> None:
 		raise RuntimeError("Model training finished but saved files were not found.")
 	st.session_state.pred_df = result.predicted_df
 	st.session_state.metrics = result.metrics
+	st.session_state.has_trained_model = True
 	st.session_state.status = (
 		"Training complete. Model saved — use Update to predict new entries without retraining."
 	)
@@ -521,13 +524,16 @@ def _handle_train() -> None:
 
 
 def _handle_update() -> None:
+	if st.session_state.data_df is None or len(st.session_state.data_df) == 0:
+		st.session_state.status = "Please enter data first, then click Update."
+		return
+	if not st.session_state.get("has_trained_model", False):
+		st.session_state.status = "Please train the model first."
+		return
 	if not backend.model_artifacts_exist(
 		st.session_state.model_path, st.session_state.scaler_path
 	):
-		st.session_state.status = "Please click Train first to build the model."
-		return
-	if st.session_state.data_df is None or len(st.session_state.data_df) == 0:
-		st.session_state.status = "Please enter data first, then click Update."
+		st.session_state.status = "Model files are missing. Please train the model first."
 		return
 	with st.spinner("Predicting..."):
 		result = backend.predict_with_saved_model(
